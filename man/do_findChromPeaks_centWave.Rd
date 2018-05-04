@@ -54,8 +54,10 @@ method is more accurate but prone to noise, while the former is more
 robust, but less exact.}
 
 \item{mzdiff}{\code{numeric(1)} representing the minimum difference in m/z
-dimension for peaks with overlapping retention times; can be negatove to
-allow overlap.}
+dimension required for peaks with overlapping retention times; can be
+negative to allow overlap. During peak post-processing, peaks
+defined to be overlapping are reduced to the one peak with the largest
+signal.}
 
 \item{fitgauss}{\code{logical(1)} whether or not a Gaussian should be fitted
 to each peak.}
@@ -130,14 +132,19 @@ This function performs peak density and wavelet based
 }
 \details{
 This algorithm is most suitable for high resolution
-    LC/\{TOF,OrbiTrap,FTICR\}-MS data in centroid mode. In the first phase
-    the method identifies \emph{regions of interest} (ROIs) representing
-    mass traces that are characterized as regions with less than \code{ppm}
-    m/z deviation in consecutive scans in the LC/MS map. These ROIs are then
-    subsequently analyzed using continuous wavelet transform (CWT) to locate
-    chromatographic peaks on different scales. The first analysis step is
-    skipped, if regions of interest are passed with the \code{roiList}
-    parameter.
+LC/\{TOF,OrbiTrap,FTICR\}-MS data in centroid mode. In the first phase
+the method identifies \emph{regions of interest} (ROIs) representing
+mass traces that are characterized as regions with less than \code{ppm}
+m/z deviation in consecutive scans in the LC/MS map. In detail, starting
+with a single m/z, a ROI is extended if a m/z can be found in the next scan
+(spectrum) for which the difference to the mean m/z of the ROI is smaller
+than the user defined \code{ppm} of the m/z. The mean m/z of the ROI is then
+updated considering also the newly included m/z value.
+
+These ROIs are then, after some cleanup, analyzed using continuous wavelet
+transform (CWT) to locate chromatographic peaks on different scales. The
+first analysis step is skipped, if regions of interest are passed with
+the \code{roiList} parameter.
 }
 \note{
 The \emph{centWave} was designed to work on centroided mode, thus it

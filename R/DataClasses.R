@@ -447,8 +447,10 @@ NULL
 #'     robust, but less exact.
 #' 
 #' @param mzdiff \code{numeric(1)} representing the minimum difference in m/z
-#'     dimension for peaks with overlapping retention times; can be negatove to
-#'     allow overlap.
+#'     dimension required for peaks with overlapping retention times; can be
+#'     negative to allow overlap. During peak post-processing, peaks
+#'     defined to be overlapping are reduced to the one peak with the largest
+#'     signal.
 #' 
 #' @param fitgauss \code{logical(1)} whether or not a Gaussian should be fitted
 #'     to each peak.
@@ -477,28 +479,40 @@ NULL
 #'     defining the scale for each region of interest in \code{roiList} that
 #'     should be used for the centWave-wavelets.
 #'
-#' @details The centWave algorithm is most suitable for high resolution
-#'     LC/\{TOF,OrbiTrap,FTICR\}-MS data in centroid mode. In the first phase
-#'     the method identifies \emph{regions of interest} (ROIs) representing
-#'     mass traces that are characterized as regions with less than \code{ppm}
-#'     m/z deviation in consecutive scans in the LC/MS map. These ROIs are
-#'     then subsequently analyzed using continuous wavelet transform (CWT)
-#'     to locate chromatographic peaks on different scales. The first analysis
-#'     step is skipped, if regions of interest are passed \emph{via} the
-#'     \code{param} parameter.
+#' @details
+#'
+#' The centWave algorithm is most suitable for high resolution
+#' LC/\{TOF,OrbiTrap,FTICR\}-MS data in centroid mode. In the first phase
+#' the method identifies \emph{regions of interest} (ROIs) representing
+#' mass traces that are characterized as regions with less than \code{ppm}
+#' m/z deviation in consecutive scans in the LC/MS map. In detail, starting
+#' with a single m/z, a ROI is extended if a m/z can be found in the next scan
+#' (spectrum) for which the difference to the mean m/z of the ROI is smaller
+#' than the user defined \code{ppm} of the m/z. The mean m/z of the ROI is then
+#' updated considering also the newly included m/z value.
+#'
+#' These ROIs are then, after some cleanup, analyzed using continuous wavelet
+#' transform (CWT) to locate chromatographic peaks on different scales.
+#' The first analysis step is skipped, if regions of interest are passed
+#' \emph{via} the \code{param} parameter.
 #'
 #' @note These methods and classes are part of the updated and modernized
 #'     \code{xcms} user interface which will eventually replace the
 #'     \code{\link{findPeaks}} methods. It supports peak detection on
-#'     \code{\link[MSnbase]{MSnExp}} and \code{\link[MSnbase]{OnDiskMSnExp}}
+#'     \code{\link{MSnExp}} and \code{\link{OnDiskMSnExp}}
 #'     objects (both defined in the \code{MSnbase} package). All of the settings
 #'     to the centWave algorithm can be passed with a \code{CentWaveParam}
 #'     object.
 #'
 #' @family peak detection methods
 #' 
-#' @seealso The \code{\link{do_findChromPeaks_centWave}} core API function and
-#'     \code{\link{findPeaks.centWave}} for the old user interface.
+#' @seealso
+#'
+#' The \code{\link{do_findChromPeaks_centWave}} core API function and
+#' \code{\link{findPeaks.centWave}} for the old user interface.
+#'
+#' \code{\link{peaksWithCentWave}} for functions to perform centWave peak
+#' detection in purely chromatographic data.
 #'
 #' @references
 #' Ralf Tautenhahn, Christoph B\"{o}ttcher, and Steffen Neumann "Highly
@@ -702,8 +716,8 @@ setClass("CentWaveParam",
 #' @note These methods and classes are part of the updated and modernized
 #'     \code{xcms} user interface which will eventually replace the
 #'     \code{\link{findPeaks}} methods. It supports chromatographic peak
-#'     detection on \code{\link[MSnbase]{MSnExp}} and
-#'     \code{\link[MSnbase]{OnDiskMSnExp}} objects (both defined in the
+#'     detection on \code{\link{MSnExp}} and
+#'     \code{\link{OnDiskMSnExp}} objects (both defined in the
 #'     \code{MSnbase} package). All of the settings to the matchedFilter
 #'     algorithm can be passed with a \code{MatchedFilterParam} object.
 #'
@@ -713,9 +727,14 @@ setClass("CentWaveParam",
 #'
 #' @family peak detection methods
 #' 
-#' @seealso The \code{\link{do_findChromPeaks_matchedFilter}} core API function
-#'     and \code{\link{findPeaks.matchedFilter}} for the old user interface.
+#' @seealso
 #'
+#' The \code{\link{do_findChromPeaks_matchedFilter}} core API function
+#' and \code{\link{findPeaks.matchedFilter}} for the old user interface.
+#'
+#' \code{\link{peaksWithMatchedFilter}} for functions to perform matchedFilter
+#' peak detection in purely chromatographic data.
+#' 
 #' @references
 #' Colin A. Smith, Elizabeth J. Want, Grace O'Maille, Ruben Abagyan and
 #' Gary Siuzdak. "XCMS: Processing Mass Spectrometry Data for Metabolite
@@ -917,8 +936,8 @@ setClass("MatchedFilterParam",
 #' @note These methods and classes are part of the updated and modernized
 #'     \code{xcms} user interface which will eventually replace the
 #'     \code{\link{findPeaks}} methods. It supports chromatographic peak
-#'     detection on \code{\link[MSnbase]{MSnExp}} and
-#'     \code{\link[MSnbase]{OnDiskMSnExp}} objects (both defined in the
+#'     detection on \code{\link{MSnExp}} and
+#'     \code{\link{OnDiskMSnExp}} objects (both defined in the
 #'     \code{MSnbase} package). All of the settings to the massifquant and
 #'     centWave algorithm can be passed with a \code{MassifquantParam} object.
 #'
@@ -1077,14 +1096,14 @@ setClass("MassifquantParam",
 #'
 #' @details This is a wrapper for the peak picker in Bioconductor's
 #'     \code{MassSpecWavelet} package calling
-#'     \code{\link[MassSpecWavelet]{peakDetectionCWT}} and
-#'     \code{\link[MassSpecWavelet]{tuneInPeakInfo}} functions. See the
+#'     \code{\link{peakDetectionCWT}} and
+#'     \code{\link{tuneInPeakInfo}} functions. See the
 #'     \emph{xcmsDirect} vignette for more information.
 #'
 #' @note These methods and classes are part of the updated and modernized
 #'     \code{xcms} user interface which will eventually replace the
 #'     \code{\link{findPeaks}} methods. It supports peak detection on
-#'     \code{\link[MSnbase]{MSnExp}} and \code{\link[MSnbase]{OnDiskMSnExp}}
+#'     \code{\link{MSnExp}} and \code{\link{OnDiskMSnExp}}
 #'     objects (both defined in the \code{MSnbase} package). All of the settings
 #'     to the algorithm can be passed with a \code{MSWParam} object.
 #'
@@ -1233,8 +1252,8 @@ setClass("MSWParam",
 #' @note These methods and classes are part of the updated and modernized
 #'     \code{xcms} user interface which will eventually replace the
 #'     \code{\link{findPeaks}} methods. It supports chromatographic peak
-#'     detection on \code{\link[MSnbase]{MSnExp}} and
-#'     \code{\link[MSnbase]{OnDiskMSnExp}} objects (both defined in the
+#'     detection on \code{\link{MSnExp}} and
+#'     \code{\link{OnDiskMSnExp}} objects (both defined in the
 #'     \code{MSnbase} package). All of the settings to the algorithm can be
 #'     passed with a \code{CentWavePredIsoParam} object.
 #'
@@ -2228,14 +2247,16 @@ setClass("MsFeatureData", contains = c("environment", "Versioned"),
 #'     can be extracted with the \code{\link{processHistory}} method.
 #'
 #'     The \code{XCMSnExp} object directly extends the
-#'     \code{\link[MSnbase]{OnDiskMSnExp}} object and provides thus an easy
+#'     \code{\link{OnDiskMSnExp}} object and provides thus an easy
 #'     access to the full raw data at any stage of an analysis.
 #'
 #'     Objects from this class should not be created directly, they are
 #'     returned as result from the \code{\link{findChromPeaks}} method.
 #'
 #'     \code{XCMSnExp} objects can be coerced into \code{\linkS4class{xcmsSet}}
-#'     objects using the \code{as} method.
+#'     objects using the \code{as} method (see examples below). All
+#'     preprocessing results will be passed along to the resulting
+#'     \code{xcmsSet} object.
 #'
 #' @note The \code{"chromPeaks"} element in the \code{msFeatureData} slot is
 #'     equivalent to the \code{@peaks} slot of the \code{xcmsSet} object, the
@@ -2271,8 +2292,8 @@ setClass("MsFeatureData", contains = c("environment", "Versioned"),
 #' @author Johannes Rainer
 #'
 #' @seealso \code{\linkS4class{xcmsSet}} for the old implementation.
-#'     \code{\link[MSnbase]{OnDiskMSnExp}}, \code{\link[MSnbase]{MSnExp}}
-#'     and \code{\link[MSnbase]{pSet}} for a complete list of inherited methods.
+#'     \code{\link{OnDiskMSnExp}}, \code{\link{MSnExp}}
+#'     and \code{\link{pSet}} for a complete list of inherited methods.
 #'
 #'     \code{\link{findChromPeaks}} for available peak detection methods
 #'     returning a \code{XCMSnExp} object as a result.
@@ -2282,11 +2303,11 @@ setClass("MsFeatureData", contains = c("environment", "Versioned"),
 #'     the feature definitions representing the peak grouping results.
 #'     \code{\link{adjustRtime}} for retention time adjustment methods.
 #'
-#'     \code{\link[MSnbase]{chromatogram}} to extract MS data as
-#'     \code{\link[MSnbase]{Chromatogram}} objects.
+#'     \code{\link{chromatogram}} to extract MS data as
+#'     \code{\link{Chromatogram}} objects.
 #' 
-#'     \code{\link{extractMsData}} for the method to extract MS data as
-#'     \code{data.frame}s.
+#'     \code{\link{as}} (\code{as(x, "data.frame")}) in the \code{MSnbase}
+#'     package for the method to extract MS data as \code{data.frame}s.
 #' 
 #' @rdname XCMSnExp-class
 #'
@@ -2425,6 +2446,44 @@ setClass("XCMSnExp",
              else TRUE
          }
 )
+
+.CPEAKS_CHROMPEAKS_REQ_NAMES <- c("row", "col", "rt", "rtmin", "rtmax", "into",
+                                  "maxo", "sn")
+setClass("CPeaks",
+         slots = c(
+             .processHistory = "list",
+             chromPeaks = "matrix"
+         ),
+         prototype = prototype(
+             .processHistory = list(),
+             chromPeaks = matrix(nrow = 0,
+                                 ncol = length(.CPEAKS_CHROMPEAKS_REQ_NAMES),
+                                 dimnames = list(character(),
+                                                 .CPEAKS_CHROMPEAKS_REQ_NAMES))
+         ),
+         contains = c("Chromatograms"),
+         validity = function(object) {
+             ## TODO @jo
+             ## 1) chromPeaks has to have the required columns.
+             ## 2) if processHistory not empty -> has to extend ProcessHistory
+             ## 3) if nrow(chromPeaks) > 0 row and column have to match the
+             ##    dimension of object
+             msg <- character()
+             ## if (length(object@.processHistory) > 0) {
+             ##     isOK <- unlist(lapply(object@.processHistory, function(z) {
+             ##         return(inherits(z, "ProcessHistory"))
+             ##     }))
+             ##     if (!all(isOK))
+             ##         msg <- c(msg, paste0("Only 'ProcessHistory' ",
+             ##                              "objects are allowed in slot ",
+             ##                              ".processHistory!"))
+             ## }
+             if (length(msg))
+                 msg
+             else TRUE
+         }
+)
+
 
 #' @aliases mz,CalibrantMassParam
 #'

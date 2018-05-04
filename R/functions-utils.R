@@ -333,11 +333,16 @@ weightedMeanAroundApex <- function(x, w = rep(1, length(x)), i = 1) {
 
 
 
-#' @title Create a plot that combines a XIC and a mz/rt 2D plot for one sample
+#' @title DEPRECATED: Create a plot that combines a XIC and a mz/rt 2D plot for one sample
 #'
-#' @description The `plotMsData` creates a plot that combines an (base peak )
-#'     extracted ion chromatogram on top (rt against intensity) and a plot of
-#'     rt against m/z values at the bottom.
+#' @description
+#'
+#' **UPDATE**: please use `plot(x, type = "XIC")` from the `MSnbase` package
+#' instead. See examples below.
+#' 
+#' The `plotMsData` creates a plot that combines an (base peak )
+#' extracted ion chromatogram on top (rt against intensity) and a plot of
+#' rt against m/z values at the bottom.
 #' 
 #' @param x `data.frame` such as returned by the [extractMsData()] function.
 #'     Only a single `data.frame` is supported.
@@ -359,7 +364,6 @@ weightedMeanAroundApex <- function(x, w = rep(1, length(x)), i = 1) {
 #'     based on their intensity. See argument `col.regions` in
 #'     [lattice::level.colors] documentation.
 #' 
-#' @seealso [extractMsData()] for the method to extract the data to plot.
 #' @author Johannes Rainer
 #' 
 #' @md
@@ -368,23 +372,22 @@ weightedMeanAroundApex <- function(x, w = rep(1, length(x)), i = 1) {
 #'
 #' ## Read two files from the faahKO package
 #' library(faahKO)
+#' library(magrittr)
 #' cdfs <- dir(system.file("cdf", package = "faahKO"), full.names = TRUE,
 #'     recursive = TRUE)[1:2]
 #' raw_data <- readMSData(cdfs, mode = "onDisk")
-#' ## Extract the MS data from a slice of data
-#' msd <- extractMsData(raw_data, mz = c(334.9, 335.1), rt = c(2700, 2900))
 #'
-#' ## Plot the data for the first file
-#' plotMsData(msd[[1]])
-#'
-#' ## To plot the data for both files:
-#' layout(mat = matrix(1:4, ncol = 2))
-#' plotMsData(msd[[1]], mfrow = NULL)
-#' plotMsData(msd[[2]], mfrow = NULL)
+#' ## Subset the object to a rt and mz range and plot the data.
+#' raw_data %>%
+#'     filterRt(rt = c(2700, 2900)) %>%
+#'     filterMz(mz = c(334.9, 335.1)) %>%
+#'     plot(type = "XIC")
 plotMsData <- function(x, main = "", cex = 1, mfrow = c(2, 1),
                        grid.color = "lightgrey",
                        colramp = colorRampPalette(
                            rev(brewer.pal(9, "YlGnBu")))) {
+    .Deprecated(msg = paste0("'plotMsData' is deprecated. Please use ",
+                             "'plot(x, type = \"XIC\") instead."))
     if (length(mfrow) == 2)
         par(mfrow = mfrow)
     par(mar = c(0, 4, 2, 1))
@@ -404,4 +407,67 @@ plotMsData <- function(x, main = "", cex = 1, mfrow = c(2, 1),
     grid(col = grid.color)
     mtext(side = 1, line = 2.5, "retention time", cex = par("cex.lab"))
     mtext(side = 4, line = 0, "mz", cex = par("cex.lab"))
+}
+
+#' @title Calculate relative log abundances
+#' 
+#' `rla` calculates the relative log abundances (RLA, see reference) on a
+#' `numeric` vector.
+#'
+#' @details The RLA is defines as the (log) abundance of an analyte relative
+#'     to the median across all abundances of the same group.
+#' 
+#' @param x `numeric` (for `rla`) or `matrix` (for `rowRla`) with the
+#'     abundances (in natural scale) on which the RLA should be calculated.
+#'
+#' @param group `factor`, `numeric` or `character` with the same length
+#'     than `x` that groups values in `x`. If omitted all values are considered
+#'     to be from the same group.
+#'
+#' @param log.transform `logical(1)` whether `x` should be log2 transformed.
+#'     Set to `log.transform = FALSE` if `x` is already in log scale.
+#' 
+#' @return `numeric` of the same length than `x` (for `rla`) or `matrix` with
+#'     the same dimensions than `x` (for `rowRla`).
+#'
+#' @rdname rla
+#'
+#' @author Johannes Rainer
+#'
+#' @md
+#'
+#' @references
+#'
+#' De Livera AM, Dias DA, De Souza D, Rupasinghe T, Pyke J, Tull D, Roessner U,
+#' McConville M, Speed TP. Normalizing and integrating metabolomics data.
+#' *Anal Chem* 2012 Dec 18;84(24):10768-76.
+#' 
+#' @examples
+#'
+#' x <- c(3, 4, 5, 1, 2, 3, 7, 8, 9)
+#'
+#' grp <- c(1, 1, 1, 2, 2, 2, 3, 3, 3)
+#'
+#' rla(x, grp)
+rla <- function(x, group, log.transform = TRUE) {
+    if (missing(group))
+        group <- rep_len(1, length(x))
+    if (length(x) != length(group))
+        stop("length of 'x' has to match length of 'group'")
+    if (!is.factor(group))
+	group <- factor(group, levels = unique(group))
+    ## Calculate group medians.
+    if (log.transform)
+        log_x <- log2(x)
+    grp_meds <- unlist(lapply(split(log_x, group), median, na.rm = TRUE))
+    log_x - grp_meds[group]
+}
+
+#' `rowRla` calculates row-wise RLAs.
+#'
+#' @rdname rla
+#'
+#' @md
+rowRla <- function(x, group, log.transform = TRUE) {
+    t(apply(x, MARGIN = 1, rla, group = group, log.transform = log.transform))
 }

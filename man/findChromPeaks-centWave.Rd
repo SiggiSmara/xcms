@@ -156,8 +156,10 @@ method is more accurate but prone to noise, while the former is more
 robust, but less exact.}
 
 \item{mzdiff}{\code{numeric(1)} representing the minimum difference in m/z
-dimension for peaks with overlapping retention times; can be negatove to
-allow overlap.}
+dimension required for peaks with overlapping retention times; can be
+negative to allow overlap. During peak post-processing, peaks
+defined to be overlapping are reduced to the one peak with the largest
+signal.}
 
 \item{fitgauss}{\code{logical(1)} whether or not a Gaussian should be fitted
 to each peak.}
@@ -187,7 +189,7 @@ defining the scale for each region of interest in \code{roiList} that
 should be used for the centWave-wavelets.}
 
 \item{object}{For \code{findChromPeaks}: an
-    \code{\link[MSnbase]{OnDiskMSnExp}}  object containing the MS- and all
+    \code{\link{OnDiskMSnExp}}  object containing the MS- and all
     other experiment-relevant data.
 
     For all other methods: a parameter object.}
@@ -196,7 +198,7 @@ should be used for the centWave-wavelets.}
 centWave algorithm.}
 
 \item{BPPARAM}{A parameter class specifying if and how parallel processing
-should be performed. It defaults to \code{\link[BiocParallel]{bpparam}}.
+should be performed. It defaults to \code{\link{bpparam}}.
 See documentation of the \code{BiocParallel} for more details. If
 parallel processing is enabled, peak detection is performed in parallel
 on several of the input samples.}
@@ -235,8 +237,8 @@ The \code{CentWaveParam} class allows to specify all settings
 
 The \code{detectChromPeaks,OnDiskMSnExp,CentWaveParam} method
     performs chromatographic peak detection using the \emph{centWave}
-    algorithm on all samples from an \code{\link[MSnbase]{OnDiskMSnExp}}
-    object. \code{\link[MSnbase]{OnDiskMSnExp}} objects encapsule all
+    algorithm on all samples from an \code{\link{OnDiskMSnExp}}
+    object. \code{\link{OnDiskMSnExp}} objects encapsule all
     experiment specific data and load the spectra data (mz and intensity
     values) on the fly from the original files applying also all eventual
     data manipulations.
@@ -282,19 +284,24 @@ The \code{detectChromPeaks,OnDiskMSnExp,CentWaveParam} method
 }
 \details{
 The centWave algorithm is most suitable for high resolution
-    LC/\{TOF,OrbiTrap,FTICR\}-MS data in centroid mode. In the first phase
-    the method identifies \emph{regions of interest} (ROIs) representing
-    mass traces that are characterized as regions with less than \code{ppm}
-    m/z deviation in consecutive scans in the LC/MS map. These ROIs are
-    then subsequently analyzed using continuous wavelet transform (CWT)
-    to locate chromatographic peaks on different scales. The first analysis
-    step is skipped, if regions of interest are passed \emph{via} the
-    \code{param} parameter.
+LC/\{TOF,OrbiTrap,FTICR\}-MS data in centroid mode. In the first phase
+the method identifies \emph{regions of interest} (ROIs) representing
+mass traces that are characterized as regions with less than \code{ppm}
+m/z deviation in consecutive scans in the LC/MS map. In detail, starting
+with a single m/z, a ROI is extended if a m/z can be found in the next scan
+(spectrum) for which the difference to the mean m/z of the ROI is smaller
+than the user defined \code{ppm} of the m/z. The mean m/z of the ROI is then
+updated considering also the newly included m/z value.
+
+These ROIs are then, after some cleanup, analyzed using continuous wavelet
+transform (CWT) to locate chromatographic peaks on different scales.
+The first analysis step is skipped, if regions of interest are passed
+\emph{via} the \code{param} parameter.
 
 Parallel processing (one process per sample) is supported and can
     be configured either by the \code{BPPARAM} parameter or by globally
     defining the parallel processing mode using the
-    \code{\link[BiocParallel]{register}} method from the \code{BiocParallel}
+    \code{\link{register}} method from the \code{BiocParallel}
     package.
 }
 \section{Slots}{
@@ -309,7 +316,7 @@ the version from the class. Slots values should exclusively be accessed
 These methods and classes are part of the updated and modernized
     \code{xcms} user interface which will eventually replace the
     \code{\link{findPeaks}} methods. It supports peak detection on
-    \code{\link[MSnbase]{MSnExp}} and \code{\link[MSnbase]{OnDiskMSnExp}}
+    \code{\link{MSnExp}} and \code{\link{OnDiskMSnExp}}
     objects (both defined in the \code{MSnbase} package). All of the settings
     to the centWave algorithm can be passed with a \code{CentWaveParam}
     object.
@@ -344,7 +351,10 @@ sensitive feature detection for high resolution LC/MS" \emph{BMC Bioinformatics}
 }
 \seealso{
 The \code{\link{do_findChromPeaks_centWave}} core API function and
-    \code{\link{findPeaks.centWave}} for the old user interface.
+\code{\link{findPeaks.centWave}} for the old user interface.
+
+\code{\link{peaksWithCentWave}} for functions to perform centWave peak
+detection in purely chromatographic data.
 
 \code{\link{XCMSnExp}} for the object containing the results of
     the peak detection.
