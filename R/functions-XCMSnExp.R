@@ -325,8 +325,7 @@ dropGenericProcessHistory <- function(x, fun) {
     res <- matrix(ncol = ncols, nrow = nrow(peakArea))
     colnames(res) <- cn
     res[, "sample"] <- sample_idx
-    res[, c("mzmin", "mzmax")] <-
-        peakArea[, c("mzmin", "mzmax")]
+    res[, c("mzmin", "mzmax")] <- peakArea[, c("mzmin", "mzmax")]
     ## Load the data
     message("Requesting ", nrow(res), " missing peaks from ",
              basename(fileNames(object)), " ... ", appendLF = FALSE)
@@ -336,18 +335,28 @@ dropGenericProcessHistory <- function(x, fun) {
     ints <- unlist(lapply(spctr, intensity), use.names = FALSE)
     rm(spctr)
     mzs <- unlist(mzs, use.names = FALSE)
+    mzs_range <- range(mzs)
     rtim <- rtime(object)
     rtim_range <- range(rtim)
-    for (i in 1:nrow(res)) {
+    for (i in seq_len(nrow(res))) {
         rtr <- peakArea[i, c("rtmin", "rtmax")]
-        ## Ensure that the rt region is within the rtrange of the data.
+        mzr <- peakArea[i, c("mzmin", "mzmax")]
+        ## If the rt range is completely out; additional fix for #267
+        if (rtr[2] < rtim_range[1] | rtr[1] > rtim_range[2] |
+            mzr[2] < mzs_range[1] | mzr[1] > mzs_range[2]) {
+            res[i, ] <- rep(NA_real_, ncols)
+            next
+        }
+        ## Ensure that the mz and rt region is within the range of the data.
         rtr[1] <- max(rtr[1], rtim_range[1])
         rtr[2] <- min(rtr[2], rtim_range[2])
+        mzr[1] <- max(mzr[1], mzs_range[1])
+        mzr[2] <- min(mzr[2], mzs_range[2])
         mtx <- .rawMat(mz = mzs, int = ints, scantime = rtim,
                        valsPerSpect = valsPerSpect, rtrange = rtr,
-                       mzrange = peakArea[i, c("mzmin", "mzmax")])
+                       mzrange = mzr)
         if (length(mtx)) {
-            if (!all(is.na(mtx[, 3]))) {
+            if (any(!is.na(mtx[, 3]))) {
                 ## How to calculate the area: (1)sum of all intensities / (2)by
                 ## the number of data points (REAL ones, considering also NAs)
                 ## and multiplied with the (3)rt width.
@@ -355,11 +364,12 @@ dropGenericProcessHistory <- function(x, fun) {
                 ## (2) sum(rtim >= rtr[1] & rtim <= rtr[2]) - 1 ; if we used
                 ## nrow(mtx) here, which would correspond to the non-NA
                 ## intensities within the rt range we don't get the same results
-                ## as e.g. centWave.
+                ## as e.g. centWave. Using max(1, ... to avoid getting Inf in
+                ## case the signal is based on a single data point.
                 ## (3) rtr[2] - rtr[1]
                 res[i, "into"] <- sum(mtx[, 3], na.rm = TRUE) *
                     ((rtr[2] - rtr[1]) /
-                     (sum(rtim >= rtr[1] & rtim <= rtr[2]) - 1))
+                     max(1, (sum(rtim >= rtr[1] & rtim <= rtr[2]) - 1)))
                 maxi <- which.max(mtx[, 3])
                 res[i, c("rt", "maxo")] <- mtx[maxi[1], c(1, 3)]
                 res[i, c("rtmin", "rtmax")] <- rtr
@@ -879,6 +889,14 @@ plotAdjustedRtime <- function(object, col = "#00000080", lty = 1, type = "l",
 #'
 #' @param main `character(1)` defining the title of the plot. By default
 #'     (for `main = NULL`) the mz-range is used.
+#'
+#' @param type `character(1)` specifying how peaks are called to be located
+#'     within the region defined by `mz` and `rt`. Can be one of `"any"`,
+#'     `"within"`, and `"apex_within"` for all peaks that are even partially
+#'     overlapping the region, peaks that are completely within the region, and
+#'     peaks for which the apex is within the region. This parameter is passed
+#'     to the [chromPeaks] function. See related documentation for more
+#'     information and examples.
 #' 
 #' @param ... Additional parameters to be passed to the `plot` function. Data
 #'     point specific parameters such as `bg` or `pch` have to be of length 1
@@ -931,7 +949,9 @@ plotAdjustedRtime <- function(object, col = "#00000080", lty = 1, type = "l",
 plotChromPeakDensity <- function(object, mz, rt, param, simulate = TRUE,
                                  col = "#00000080", xlab = "retention time",
                                  ylab = "sample", xlim = range(rt),
-                                 main = NULL, ...) {
+                                 main = NULL, type = c("any", "within",
+                                                       "apex_within"), ...) {
+    type <- match.arg(type)
     if (missing(object))
         stop("Required parameter 'object' is missing")
     if (!is(object, "XCMSnExp"))
@@ -965,7 +985,7 @@ plotChromPeakDensity <- function(object, mz, rt, param, simulate = TRUE,
     nsamples <- length(fileNames(object))
     if (length(col) != nsamples)
         col <- rep_len(col[1], nsamples)
-    pks <- chromPeaks(object, mz = mz, rt = rt)
+    pks <- chromPeaks(object, mz = mz, rt = rt, type = type)
     if (nrow(pks)) {
         ## Extract parameters from the param object
         bw = bw(param)
@@ -1034,11 +1054,14 @@ plotChromPeakDensity <- function(object, mz, rt, param, simulate = TRUE,
                   }
         } else {
             ## Plot all features in the region.
-            fts <- featureDefinitions(object, mz = mz, rt = rt)
-            rect(xleft = fts$rtmin, xright = fts$rtmax,
-                 ybottom = rep(yl[1], nrow(fts)), ytop = rep(yl[2], nrow(fts)),
-                 border = "#00000040", col = "#00000020")
-            abline(v = fts$rtmed, col = "#00000040", lty = 2)
+            fts <- featureDefinitions(object, mz = mz, rt = rt, type = type)
+            if (nrow(fts)) {
+                rect(xleft = fts$rtmin, xright = fts$rtmax,
+                     ybottom = rep(yl[1], nrow(fts)),
+                     ytop = rep(yl[2], nrow(fts)),
+                     border = "#00000040", col = "#00000020")
+                abline(v = fts$rtmed, col = "#00000040", lty = 2)
+            }
         }
     } else {
         plot(3, 3, pch = NA, xlim = rt, xlab = xlab,
@@ -1081,6 +1104,15 @@ plotChromPeakDensity <- function(object, mz, rt, param, simulate = TRUE,
 #'     chromatographic peak with a single point at the position of the peak's
 #'     \code{"rt"} and \code{"maxo"}.
 #'
+#' @param whichPeaks \code{character(1)} specifying how peaks are called to be
+#'     located within the region defined by \code{mz} and \code{rt}. Can be
+#'     one of \code{"any"}, \code{"within"}, and \code{"apex_within"} for all
+#'     peaks that are even partially overlapping the region, peaks that are
+#'     completely within the region, and peaks for which the apex is within
+#'     the region. This parameter is passed to the \code{type} argument of the
+#'     \code{\link{chromPeaks}} function. See related documentation for more
+#'     information and examples.
+#' 
 #' @param ... additional parameters to the \code{\link{matplot}} or \code{plot}
 #'     function.
 #' 
@@ -1113,8 +1145,10 @@ plotChromPeakDensity <- function(object, mz, rt, param, simulate = TRUE,
 highlightChromPeaks <- function(x, rt, mz,
                                 border = rep("00000040", length(fileNames(x))),
                                 lwd = 1, col = NA, type = c("rect", "point"),
+                                whichPeaks = c("any", "within", "apex_within"),
                                 ...) {
     type <- match.arg(type)
+    whichPeaks <- match.arg(whichPeaks)
     n_samples <- length(fileNames(x))
     if (missing(rt))
         rt <- c(-Inf, Inf)
@@ -1124,7 +1158,7 @@ highlightChromPeaks <- function(x, rt, mz,
         stop("'x' has to be a XCMSnExp object")
     if (!hasChromPeaks(x))
         stop("'x' does not contain any detected peaks")
-    pks <- chromPeaks(x, rt = rt, mz = mz, ppm = 0)
+    pks <- chromPeaks(x, rt = rt, mz = mz, ppm = 0, type = whichPeaks)
     if (length(col) != n_samples)
         col <- rep(col[1], n_samples)
     if (length(border) != n_samples)
@@ -1164,7 +1198,7 @@ highlightChromPeaks <- function(x, rt, mz,
 #' 
 #' @description
 #'
-#' \code{plotChromPeakImage} plots the identified chromatographic
+#' \code{plotChromPeaks} plots the identified chromatographic
 #' peaks from one file into the plane spanned by the retention time and mz
 #' dimension (x-axis representing the retention time and y-axis mz).
 #' Each chromatographic peak is plotted as a rectangle representing its
@@ -1532,3 +1566,179 @@ filterFeatureDefinitions <- function(x, features) {
         x
 }
 
+#' @title Simple feature summaries
+#'
+#' @description
+#' 
+#' Simple function to calculate feature summaries. These include counts and
+#' percentages of samples in which a chromatographic peak is present for each
+#' feature and counts and percentages of samples in which more than one
+#' chromatographic peak was annotated to the feature. Also relative standard
+#' deviations (RSD) are calculated for the integrated peak areas per feature
+#' across samples. For `perSampleCounts = TRUE` also the individual
+#' chromatographic peak counts per sample are returned.
+#'
+#' @param x `XCMSnExp` object with correspondence results.
+#'
+#' @param group `numeric`, `logical`, `character` or `factor` with the same
+#'     length than `x` has samples to aggregate counts by the groups defined
+#'     in `group`.
+#'
+#' @param perSampleCounts `logical(1)` whether feature wise individual peak
+#'     counts per sample should be returned too.
+#'
+#' @param method `character` passed to the [featureValues()] function. See
+#'     respective help page for more information.
+#' 
+#' @return
+#'
+#' `matrix` with one row per feature and columns:
+#'
+#' - `"count"`: the total number of samples in which a peak was found.
+#' - `"perc"`: the percentage of samples in which a peak was found.
+#' - `"multi_count"`: the total number of samples in which more than one peak
+#'   was assigned to the feature.
+#' - `"multi_perc"`: the percentage of those samples in which a peak was found,
+#'   that have also multiple peaks annotated to the feature. Example: for a
+#'   feature, at least one peak was detected in 50 samples. In 5 of them 2 peaks
+#'   were assigned to the feature. `"multi_perc"` is in this case 10%.
+#' - `"rsd"`: relative standard deviation (coefficient of variation) of the
+#'   integrated peak area of the feature's peaks.
+#' - The same 4 columns are repeated for each unique element (level) in `group`
+#'   if `group` was provided.
+#'
+#' If `perSampleCounts = TRUE` also one column for each sample is returned
+#' with the peak counts per sample.
+#'
+#' @author Johannes Rainer
+featureSummary <- function(x, group, perSampleCounts = FALSE,
+                           method = "maxint") {
+    if (!is(x, "XCMSnExp"))
+        stop("'x' is expected to be an 'XCMSnExp' object")
+    if (!hasFeatures(x))
+        stop("No feature definitions found in 'x'. Please perform first a ",
+             "correspondence analysis with the 'groupChromPeaks' function.")
+    if (!missing(group)) {
+        if (length(group) != length(fileNames(x)))
+            stop("length of 'group' does not match the number of ",
+                 "samples in 'x'")
+    }
+    ## First determine the number of peaks per sample
+    smpls <- seq_along(fileNames(x))
+    pks_per_sample <- lapply(featureDefinitions(x)$peakidx, function(z)
+        as.numeric(table(factor(chromPeaks(x)[z, "sample"],
+                                levels = smpls))))
+    pks_per_sample <- do.call(rbind, pks_per_sample)
+    rownames(pks_per_sample) <- rownames(featureDefinitions(x))
+    sum_fun <- function(z) {
+        cnt <- sum(z > 0)
+        cnt_multi <- sum(z > 1)
+        sm <- c(count = cnt,
+                 perc = cnt * 100 / length(z),
+                 multi_count = cnt_multi,
+                 multi_perc = cnt_multi * 100 / cnt
+                 )
+        sm[is.na(sm)] <- 0
+        sm
+    }
+    fts_sum <- t(apply(pks_per_sample, MARGIN = 1, sum_fun))
+    ## Calculate RSD
+    rsd <- function(z) {sd(z, na.rm = TRUE) / abs(mean(z, na.rm = TRUE))}
+    fvals <- featureValues(x, value = "into", method = method)
+    fts_sum <- cbind(fts_sum, rsd = apply(fvals, MARGIN = 1, rsd))
+    if (!missing(group)) {
+        per_group <- lapply(unique(group), function(grp) {
+            idx <- which(group == grp)
+            res <- cbind(t(apply(pks_per_sample[, idx, drop = FALSE],
+                                 MARGIN = 1, sum_fun)),
+                         rsd = apply(fvals[, idx, drop = FALSE], MARGIN = 1,
+                                     rsd))
+            colnames(res) <- paste0(grp, "_", colnames(res))
+            res
+        })
+        fts_sum <- cbind(fts_sum, do.call(cbind, per_group))
+    }
+    if (perSampleCounts) {
+        colnames(pks_per_sample) <- basename(fileNames(x))
+        fts_sum <- cbind(fts_sum, pks_per_sample)
+    }
+    fts_sum
+}
+
+#' @title Identify overlapping features
+#'
+#' @description
+#'
+#' `overlappingFeatures` identifies features that are overlapping or close in
+#' the m/z - rt space.
+#'
+#' @param x `XCMSnExp` with the features.
+#' 
+#' @param expandMz `numeric(1)` with the value to expand each feature (on each
+#'     side) in m/z dimension before identifying overlapping features.
+#'     The resulting `"mzmin"` for the feature is thus `mzmin - expandMz` and
+#'     the `"mzmax"` `mzmax + expandMz`.
+#'
+#' @param expandRt `numeric(1)` with the value to expand each feature (on each
+#'     side) in retention time dimension before identifying overlapping
+#'     features. The resulting `"rtmin"` for the
+#'     feature is thus `rtmin - expandRt` and the `"rtmax"` `rtmax + expandRt`.
+#'
+#' @param ppm `numeric(1)` to grow the m/z width of the feature by a relative
+#'     value: `mzmin - mzmin * ppm / 2e6`, `mzmax + mzmax * ppm / 2e6`. Each
+#'     feature is thus expanded in m/z dimension by ppm/2 on each side before
+#'     identifying overlapping features.
+#' 
+#' @return `list` with indices of features (in [featureDefinitions()]) that
+#'     are overlapping.
+#'
+#' @md
+#' 
+#' @author Johannes Rainer
+#'
+#' @examples
+#' ## Load 2 test files.
+#' data <- readMSData(c(system.file("cdf/KO/ko15.CDF", package = "faahKO"),
+#'                      system.file("cdf/KO/ko16.CDF", package = "faahKO")),
+#'                    mode = "onDisk")
+#'
+#' ## Perform peak detection; parameters set to reduce processing speed
+#' data <- findChromPeaks(data, CentWaveParam(noise = 10000, snthresh = 40))
+#'
+#' ## Correspondence analysis
+#' data <- groupChromPeaks(data, param = PeakDensityParam(sampleGroups = c(1, 1)))
+#'
+#' ## Identify overlapping features
+#' overlappingFeatures(data)
+#'
+#' ## Identify features that are separated on retention time by less than
+#' ## 2 minutes
+#' overlappingFeatures(data, expandRt = 60)
+overlappingFeatures <- function(x, expandMz = 0, expandRt = 0, ppm = 0) {
+    if (!is(x, "XCMSnExp"))
+        stop("'x' is expected to be an 'XCMSnExp' object")
+    if (!hasFeatures(x))
+        stop("No feature definitions found in 'x'. Please perform first a ",
+             "correspondence analysis with the 'groupChromPeaks' function.")
+    xl <- featureDefinitions(x)$rtmin
+    xr <- featureDefinitions(x)$rtmax
+    yb <- featureDefinitions(x)$mzmin
+    yt <- featureDefinitions(x)$mzmax
+    ## Expand them?
+    if (expandMz != 0) {
+        yb <- yb - expandMz
+        yt <- yt + expandMz
+    }
+    if (ppm != 0) {
+        yb <- yb - yb * ppm / 2e6
+        yt <- yt + yt * ppm / 2e6
+    }
+    if (expandRt != 0) {
+        rng <- range(rtime(x))
+        xl <- xl - expandRt
+        xl[xl < rng[1]] <- rng[1]
+        xr <- xr + expandRt
+        xr[xr > rng[2]] <- rng[2]
+    }
+    .rect_overlap(xleft = xl, xright = xr, ybottom = yb, ytop = yt)
+}

@@ -54,6 +54,8 @@ test_that("plotChromPeakDensity works", {
     
     plotChromPeakDensity(xod_x, mz = c(0, 1))
     plotChromPeakDensity(xod_x, mz = c(300, 310), pch = 16, xlim = c(2500, 4000))
+
+    expect_error(plotChromPeakDensity(xod_x, mz = c(0, 1), type = "dunno"))
 })
 
 test_that("plotChromPeaks works", {
@@ -129,4 +131,57 @@ test_that("filterFeatureDefinitions works", {
     expect_true(length(processHistory(tmp)) == 3)
     ph <- processHistory(tmp)[[length(processHistory(tmp))]]
     expect_true(!is(processParam(ph), "GenericParam"))
+})
+
+test_that("featureSummary works", {
+    expect_error(featureSummary(1:3))
+    expect_error(featureSummary(xod_xgrg, group = 1:5))
+    expect_error(featureSummary(xod_xgr))
+
+    res <- xcms:::featureSummary(xod_xgrg)
+    expect_equal(colnames(res), c("count", "perc", "multi_count",
+                                  "multi_perc", "rsd"))
+    expect_equal(rownames(res), rownames(featureDefinitions(xod_xgrg)))
+    ## Check that RSD calculation is correct.
+    rsds <- apply(featureValues(xod_xgrg, value = "into", method = "maxint"),
+                  MARGIN = 1, function(z) {
+                      sd(z, na.rm = TRUE) / mean(z, na.rm = TRUE)
+                  })
+    expect_equal(rsds, res[, "rsd"])
+    
+    res <- featureSummary(xod_xgrg, group = c(2, 1, 1))
+    expect_equal(colnames(res), c("count", "perc", "multi_count", "multi_perc",
+                                  "rsd", "2_count", "2_perc", "2_multi_count",
+                                  "2_multi_perc", "2_rsd", "1_count", "1_perc",
+                                  "1_multi_count", "1_multi_perc", "1_rsd"))
+    expect_equal(rownames(res), rownames(featureDefinitions(xod_xgrg)))
+    expect_equal(res[, "rsd"], rsds)
+    ## Sum of individual has to match overall numbers.
+    expect_equal(res[, "count"], rowSums(res[, c("1_count", "2_count")]))
+    expect_equal(res[, "multi_count"],
+                 rowSums(res[, c("1_multi_count", "2_multi_count")]))
+    rsds <- apply(featureValues(xod_xgrg, value = "into",
+                                method = "maxint")[, 2:3],
+                  MARGIN = 1, function(z) {
+                      sd(z, na.rm = TRUE) / mean(z, na.rm = TRUE)
+                  })
+    expect_equal(rsds, res[, "1_rsd"])
+    ## Columns except rsd are not allowed to have NAs
+    expect_true(sum(is.na(res[, -grep(colnames(res), pattern = "rsd")])) == 0)
+    
+    res <- featureSummary(xod_xgrg, perSampleCounts = TRUE)
+    expect_equal(colnames(res), c("count", "perc", "multi_count", "multi_perc",
+                                  "rsd",
+                                  basename(fileNames(xod_xgrg))))
+})
+
+test_that("overlappingFeatures works", {
+    ## Errors
+    expect_error(overlappingFeatures())
+    expect_error(overlappingFeatures(4))
+    expect_error(overlappingFeatures(xod_x))
+
+    expect_true(length(overlappingFeatures(xod_xg)) == 0)
+    res <- overlappingFeatures(xod_xg, expandRt = 60)
+    expect_equal(res, list(c(5, 6), c(31, 32)))
 })

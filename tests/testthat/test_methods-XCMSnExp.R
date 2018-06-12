@@ -145,30 +145,37 @@ test_that("XCMSnExp accessors work", {
     expect_true(hasFeatures(xod))
     expect_equal(featureDefinitions(xod), fd)
     ## featureDefinitions with mz and/or rt range:
-    feat_def <- featureDefinitions(xod_xg)
+    obj <- xod_xgrg
+    feat_def <- featureDefinitions(obj)
     ## Within
     mzr <- c(300, 330)
     keep_mz <- feat_def$mzmin > mzr[1] & feat_def$mzmax < mzr[2]
-    expect_equal(featureDefinitions(xod_xg, mz = mzr, type = "within"),
+    expect_equal(featureDefinitions(obj, mz = mzr, type = "within"),
                  feat_def[keep_mz, ])
     rtr <- c(3000, 3800)
     keep_rt <- feat_def$rtmin > rtr[1] & feat_def$rtmax < rtr[2]
-    expect_equal(featureDefinitions(xod_xg, rt = rtr, type = "within"),
+    expect_equal(featureDefinitions(obj, rt = rtr, type = "within"),
                  feat_def[keep_rt, ])
-    expect_equal(featureDefinitions(xod_xg, rt = rtr, mz = mzr, type = "within"),
+    expect_equal(featureDefinitions(obj, rt = rtr, mz = mzr,
+                                    type = "within"),
                  feat_def[keep_rt & keep_mz, ])
     ## Any
-    mzr <- range(featureDefinitions(xod_xg)[2, "mzmed"])
-    keep_mz <- feat_def$mzmax >= mzr[1] & feat_def$mzmin <= mzr[2]
-    expect_equal(featureDefinitions(xod_xg, mz = mzr, type = "any"),
+    mzr <- range(featureDefinitions(obj)[2, "mzmed"])
+    ## Defining all possible cases; the internal function uses more cleverer
+    ## approach.
+    keep_mz <- (feat_def$mzmax >= mzr[1] & feat_def$mzmax <= mzr[2]) |
+        (feat_def$mzmin >= mzr[1] & feat_def$mzmin <= mzr[2]) |
+        (feat_def$mzmin <= mzr[1] & feat_def$mzmax >= mzr[2])
+    expect_equal(featureDefinitions(obj, mz = mzr, type = "any"),
                  feat_def[keep_mz, , drop = FALSE])
-    rtr <- range(3420.006)
-    keep_rt <- feat_def$rtmax >= rtr[1] & feat_def$rtmin <= rtr[2]
-    expect_true(nrow(featureDefinitions(xod_xg, rt = rtr, type = "within")) !=
-                nrow(featureDefinitions(xod_xg, rt = rtr, type = "any")))
-    expect_equal(featureDefinitions(xod_xg, rt = rtr, type = "any"),
+    rtr <- range(c(3420, 3430))
+    keep_rt <- (feat_def$rtmax >= rtr[1] & feat_def$rtmax <= rtr[2]) |
+        (feat_def$rtmin >= rtr[1] & feat_def$rtmin <= rtr[2]) |
+        (feat_def$rtmin <= rtr[1] & feat_def$rtmax >= rtr[2])
+    expect_true(nrow(featureDefinitions(obj, rt = rtr, type = "within")) == 1)
+    expect_equal(featureDefinitions(obj, rt = rtr, type = "any"),
                  feat_def[keep_rt, , drop = FALSE])
-    expect_equal(featureDefinitions(xod_xg, rt = rtr, mz = mzr, type = "any"),
+    expect_equal(featureDefinitions(obj, rt = rtr, mz = mzr, type = "any"),
                  feat_def[keep_rt & keep_mz, , drop = FALSE])
     
     ## adjustedRtime
@@ -1085,6 +1092,32 @@ test_that("featureValues,XCMSnExp works", {
     rownames(gvs) <- NULL
     colnames(gvs) <- NULL
     expect_equal(fvs, gvs)
+
+    fsum <- featureSummary(xod_xg)
+    fv <- featureValues(xod_xg, method = "maxint", value = "into")
+    ## For feature 3 we have 2 peaks in sample 3
+    idx <- unlist(featureDefinitions(xod_xg)[3, "peakidx"])
+    pks <- chromPeaks(xod_xg)[idx, ]
+    expect_equal(max(pks[pks[, "sample"] == 3, "into"]), fv[3, 3])
+    ## For feature 37 we have 2 peaks per sample
+    idx <- unlist(featureDefinitions(xod_xg)[37, "peakidx"])
+    pks <- chromPeaks(xod_xg)[idx, ]
+    expect_equal(max(pks[pks[, "sample"] == 1, "into"]), fv[37, 1])
+    expect_equal(max(pks[pks[, "sample"] == 2, "into"]), fv[37, 2])
+    expect_equal(max(pks[pks[, "sample"] == 3, "into"]), fv[37, 3])
+
+    ## method sum
+    fv <- featureValues(xod_xg, method = "sum", value = "into")
+    ## For feature 3 we have 2 peaks in sample 3
+    idx <- unlist(featureDefinitions(xod_xg)[3, "peakidx"])
+    pks <- chromPeaks(xod_xg)[idx, ]
+    expect_equal(sum(pks[pks[, "sample"] == 3, "into"]), fv[3, 3])
+    ## For feature 37 we have 2 peaks per sample
+    idx <- unlist(featureDefinitions(xod_xg)[37, "peakidx"])
+    pks <- chromPeaks(xod_xg)[idx, ]
+    expect_equal(sum(pks[pks[, "sample"] == 1, "into"]), fv[37, 1])
+    expect_equal(sum(pks[pks[, "sample"] == 2, "into"]), fv[37, 2])
+    expect_equal(sum(pks[pks[, "sample"] == 3, "into"]), fv[37, 3])
 })
 
 test_that("peakIndex,XCMSnExp works", {

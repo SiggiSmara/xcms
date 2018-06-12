@@ -173,8 +173,13 @@ setReplaceMethod("adjustedRtime", "XCMSnExp", function(object, value) {
 #' \code{featureDefinitions}, \code{featureDefinitions<-}: extract
 #' or set the correspondence results, i.e. the mz-rt features (peak groups).
 #' Similar to the \code{chromPeaks} it is possible to extract features for
-#' specified m/z and/or rt ranges (see \code{chromPeaks} for more details).
-#'
+#' specified m/z and/or rt ranges. The function supports also the parameter
+#' \code{type} that allows to specify which features to be returned if any
+#' of \code{rt} or \code{mz} is specified. For details see help of
+#' \code{chromPeaks}.
+#' See also \code{\link{featureSummary}} for a function to calculate simple
+#' feature summaries.
+#' 
 #' @return
 #'
 #' For \code{featureDefinitions}: a \code{DataFrame} with peak grouping
@@ -191,16 +196,19 @@ setReplaceMethod("adjustedRtime", "XCMSnExp", function(object, value) {
 #' @rdname XCMSnExp-class
 setMethod("featureDefinitions", "XCMSnExp", function(object, mz = numeric(),
                                                      rt = numeric(), ppm = 0,
-                                                     type = "any") {
+                                                     type = c("any", "within",
+                                                              "apex_within")) {
     feat_def <- featureDefinitions(object@msFeatureData)
-    type <- match.arg(type, c("any", "within"))
+    type <- match.arg(type)
     ## Select features within rt range.
-    if (length(rt)) {
+    if (length(rt) && nrow(feat_def)) {
         rt <- range(rt)
+        if (type == "any")
+            keep <- which(feat_def$rtmin <= rt[2] & feat_def$rtmax >= rt[1])
         if (type == "within")
             keep <- which(feat_def$rtmin >= rt[1] & feat_def$rtmax <= rt[2])
-        else
-            keep <- which(feat_def$rtmax >= rt[1] & feat_def$rtmin <= rt[2])
+        if (type == "apex_within")
+            keep <- which(feat_def$rtmed >= rt[1] & feat_def$rtmed <= rt[2])
         feat_def <- feat_def[keep, , drop = FALSE]
     }
     ## Select peaks within mz range, considering also ppm
@@ -211,10 +219,12 @@ setMethod("featureDefinitions", "XCMSnExp", function(object, mz = numeric(),
             mz[1] <- mz[1] - mz[1] * ppm / 1e6
         if (is.finite(mz[2]))
             mz[2] <- mz[2] + mz[2] * ppm / 1e6
+        if (type == "any")
+            keep <- which(feat_def$mzmin <= mz[2] & feat_def$mzmax >= mz[1])
         if (type == "within")
             keep <- which(feat_def$mzmin >= mz[1] & feat_def$mzmax <= mz[2])
-        else
-            keep <- which(feat_def$mzmax >= mz[1] & feat_def$mzmin <= mz[2])
+        if (type == "apex_within")
+            keep <- which(feat_def$mzmed >= mz[1] & feat_def$mzmed <= mz[2])
         feat_def <- feat_def[keep, , drop = FALSE]
     }
     feat_def
@@ -309,7 +319,7 @@ setMethod("chromPeaks", "XCMSnExp", function(object, bySample = FALSE,
     if (length(rt)) {
         rt <- range(rt)
         if (type == "any")
-            keep <- which(pks[, "rtmax"] >= rt[1] & pks[, "rtmin"] <= rt[2])
+            keep <- which(pks[, "rtmin"] <= rt[2] & pks[, "rtmax"] >= rt[1])
         if (type == "within")
             keep <- which(pks[, "rtmin"] >= rt[1] & pks[, "rtmax"] <= rt[2])
         if (type == "apex_within")
@@ -325,7 +335,7 @@ setMethod("chromPeaks", "XCMSnExp", function(object, bySample = FALSE,
         if (is.finite(mz[2]))
             mz[2] <- mz[2] + mz[2] * ppm / 1e6
         if (type == "any")
-            keep <- which(pks[, "mzmax"] >= mz[1] & pks[, "mzmin"] <= mz[2])
+            keep <- which(pks[, "mzmin"] <= mz[2] & pks[, "mzmax"] >= mz[1])
         if (type == "within")
             keep <- which(pks[, "mzmin"] >= mz[1] & pks[, "mzmax"] <= mz[2])
         if (type == "apex_within")
@@ -1989,7 +1999,9 @@ setMethod("profMat", signature(object = "XCMSnExp"), function(object,
 #'     \emph{representative} peak for a feature in samples where more than
 #'     one peak was assigned to the feature. If \code{"medret"}: select the
 #'     peak closest to the median retention time of the feature.
-#'     If \code{"maxint"}: select the peak yielding the largest signal.
+#'     If \code{"maxint"}: select the peak yielding the largest signal. If
+#'     \code{"sum"}: sum the values (only if \code{value} is \code{"into"} or
+#'     \code{"maxo"}.
 #'
 #' @param value \code{character} specifying the name of the column in
 #'     \code{chromPeaks(object)} that should be returned or \code{"index"} (the
@@ -2030,8 +2042,8 @@ setMethod("profMat", signature(object = "XCMSnExp"), function(object,
 #' @rdname XCMSnExp-peak-grouping-results
 setMethod("featureValues",
           signature(object = "XCMSnExp"),
-          function(object, method = c("medret", "maxint"), value = "index",
-                   intensity = "into", filled = TRUE) {
+          function(object, method = c("medret", "maxint", "sum"),
+                   value = "index", intensity = "into", filled = TRUE) {
               ## Input argument checkings
               if (!hasFeatures(object))
                   stop("No peak groups present! Use 'groupChromPeaks' first.")
@@ -2039,6 +2051,9 @@ setMethod("featureValues",
                   stop("No detected chromatographic peaks present! Use ",
                        "'findChromPeaks' first.")
               method <- match.arg(method)
+              if (method == "sum" & !(value %in% c("into", "maxo")))
+                  stop("method 'sum' is only allowed if value is set to 'into'",
+                       " or 'maxo'")
               fNames <- basename(fileNames(object))
               nSamples <- seq_along(fNames)
               ## Copy all of the objects to avoid costly S4 method calls -
@@ -2057,31 +2072,44 @@ setMethod("featureValues",
               
               vals <- matrix(nrow = length(ftIdx), ncol = length(nSamples))
               
-              ## Get the indices for the elements.
-              if (method == "medret") {
-                  medret <- grps$rtmed
+              if (method == "sum") {
                   for (i in seq_along(ftIdx)) {
-                      gidx <- ftIdx[[i]][base::order(base::abs(fts[ftIdx[[i]],
-                                                                   idx_rt] -
-                                                               medret[i]))]
-                      vals[i, ] <- gidx[base::match(nSamples, fts[gidx,
-                                                                  idx_samp])]
+                      cur_pks <- fts[ftIdx[[i]], c(value, "sample")]
+                      int_sum <- split(cur_pks[, value], cur_pks[, "sample"])
+                      vals[i, as.numeric(names(int_sum))] <-
+                          unlist(lapply(int_sum, base::sum), use.names = FALSE)
                   }
               } else {
-                  for (i in seq_along(ftIdx)) {
-                      gidx <- ftIdx[[i]][base::order(fts[ftIdx[[i]], idx_int],
-                                                     decreasing = TRUE)]
-                      vals[i, ] <- gidx[base::match(nSamples, fts[gidx, idx_samp])]
+                  ## Selecting only a single one.
+                  ## Get the indices for the elements.
+                  if (method == "medret") {
+                      medret <- grps$rtmed
+                      for (i in seq_along(ftIdx)) {
+                          gidx <- ftIdx[[i]][
+                              base::order(base::abs(fts[ftIdx[[i]],
+                                                        idx_rt] - medret[i]))]
+                          vals[i, ] <- gidx[
+                              base::match(nSamples, fts[gidx, idx_samp])]
+                      }
+                  }
+                  if (method == "maxint") {
+                      for (i in seq_along(ftIdx)) {
+                          gidx <- ftIdx[[i]][
+                              base::order(fts[ftIdx[[i]], idx_int],
+                                          decreasing = TRUE)]
+                          vals[i, ] <- gidx[base::match(nSamples,
+                                                        fts[gidx, idx_samp])]
+                      }
+                  }
+                  if (value != "index") {
+                      if (!any(colnames(fts) == value))
+                          stop("Column '", value, "' not present in the ",
+                               "chromatographic peaks matrix!")
+                      vals <- fts[vals, value]
+                      dim(vals) <- c(length(ftIdx), length(nSamples))
                   }
               }
               
-              if (value != "index") {
-                  if (!any(colnames(fts) == value))
-                      stop("Column '", value,
-                           "' not present in the chromatographic peaks matrix!")
-                  vals <- fts[vals, value]
-                  dim(vals) <- c(length(ftIdx), length(nSamples))
-              }
               colnames(vals) <- fNames
               rownames(vals) <- rownames(grps)
               vals
@@ -2338,7 +2366,10 @@ setMethod("findChromPeaks",
 #' intensity values for such features in the missing samples by integrating
 #' the signal in the mz-rt region of the feature. The mz-rt area is defined
 #' by the median mz and rt start and end points of the other detected
-#' chromatographic peaks for a given feature.
+#' chromatographic peaks for a given feature. Various parameters allow to
+#' increase this area, either by a constant value (\code{fixedMz} and
+#' \code{fixedRt}) or by a feature-relative amount (\code{expandMz} and
+#' \code{expandRt}).
 #' 
 #' Adjusted retention times will be used if available.
 #'
@@ -2393,6 +2424,18 @@ setMethod("findChromPeaks",
 #'     This is applied before eventually expanding the mz width using the
 #'     \code{expandMz} parameter.
 #'
+#' @param fixedMz \code{numeric(1)} defining a constant factor by which the
+#'     m/z width of each feature is to be expanded. The m/z width is expanded
+#'     on both sides by \code{fixedMz} (i.e. \code{fixedMz} is subtracted
+#'     from the lower m/z and added to the upper m/z). This expansion is
+#'     applied \emph{after} \code{expandMz} and \code{ppm}.
+#'
+#' @param fixedRt \code{numeric(1)} defining a constant factor by which the
+#'     retention time width of each factor is to be expanded. The rt width is
+#'     expanded on both sides by \code{fixedRt} (i.e. \code{fixedRt} is
+#'     subtracted from the lower rt and added to the upper rt). This
+#'     expansion is applied \emph{after} \code{expandRt}.
+#' 
 #' @param BPPARAM Parallel processing settings.
 #' 
 #' @return
@@ -2480,6 +2523,8 @@ setMethod("fillChromPeaks",
               startDate <- date()
               expandMz <- expandMz(param)
               expandRt <- expandRt(param)
+              fixedMz <- fixedMz(param)
+              fixedRt <- fixedRt(param)
               ppm <- ppm(param)
               ## Define or extend the peak area from which the signal should be
               ## extracted.
@@ -2517,6 +2562,14 @@ setMethod("fillChromPeaks",
                               diffMz <- (pa[4] - pa[3]) * expandMz / 2
                               pa[3] <- pa[3] - diffMz
                               pa[4] <- pa[4] + diffMz
+                          }
+                          if (fixedMz != 0) {
+                              pa[3] <- pa[3] - fixedMz
+                              pa[4] <- pa[4] + fixedMz
+                          }
+                          if (fixedRt != 0) {
+                              pa[1] <- pa[1] - fixedRt
+                              pa[2] <- pa[2] + fixedRt
                           }
                           return(pa)
                       }
